@@ -20,7 +20,7 @@ class InvoiceRequest(BaseModel):
 
 
 def extract_amount(value):
-    if value is None:
+    if not value:
         return None
     value = value.replace(",", "")
     m = re.search(r"\d+(?:\.\d+)?", value)
@@ -28,7 +28,7 @@ def extract_amount(value):
 
 
 @app.get("/")
-def home():
+def root():
     return {"status": "ok"}
 
 
@@ -46,9 +46,11 @@ def extract(req: InvoiceRequest):
 
     # ---------------- Invoice Number ----------------
     patterns = [
-        r"Invoice\s*(?:No|Number)?\s*[:#]?\s*([A-Za-z0-9\-/]+)",
-        r"Invoice\s*#\s*[: ]?\s*([A-Za-z0-9\-/]+)",
-        r"Ref\s*:\s*([A-Za-z0-9\-/]+)"
+        r"Invoice\s*#\s*:\s*([A-Za-z0-9\-/]+)",
+        r"Invoice\s*#\s*([A-Za-z0-9\-/]+)",
+        r"Invoice\s*No\.?\s*:\s*([A-Za-z0-9\-/]+)",
+        r"Invoice\s*Number\s*:\s*([A-Za-z0-9\-/]+)",
+        r"Ref\s*:\s*([A-Za-z0-9\-/]+)",
     ]
 
     for p in patterns:
@@ -74,10 +76,10 @@ def extract(req: InvoiceRequest):
                     dayfirst=True
                 ).date().isoformat()
             except Exception:
-                pass
+                date = None
             break
 
-    # ---------------- Subtotal ----------------
+    # ---------------- Amount (Subtotal) ----------------
     m = re.search(
         r"Subtotal\s*:\s*(?:Rs\.?|INR|USD|EUR|GBP|₹)?\s*([0-9,]+(?:\.[0-9]+)?)",
         text,
@@ -97,7 +99,7 @@ def extract(req: InvoiceRequest):
 
     # ---------------- Currency ----------------
     m = re.search(
-        r"Currency\s*:\s*(INR|USD|EUR|GBP|AED|JPY|AUD|CAD)",
+        r"Currency\s*:\s*(INR|USD|EUR|GBP|JPY|AUD|CAD|AED)",
         text,
         re.IGNORECASE,
     )
