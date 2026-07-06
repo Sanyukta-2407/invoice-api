@@ -118,11 +118,10 @@ def extract(req: InvoiceRequest):
         currency = "GBP"
 
     return {
-        "invoice_no": invoice_no,
-        "date": date,
-        "vendor": vendor,
-        "amount": amount,
-        "tax": tax,
-        "total": total,
-        "currency": currency,
-    }
+    "invoice_no": invoice_no,
+    "date": date,
+    "vendor": vendor,
+    "amount": amount,
+    "tax": tax,
+    "currency": currency
+}
