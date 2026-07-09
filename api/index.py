@@ -7,7 +7,6 @@ from dateutil import parser
 
 app = FastAPI()
 
-# Enable CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -39,22 +38,22 @@ def parse_amount(value):
         .replace("Rs", "")
         .replace("₹", "")
         .replace("INR", "")
-        .replace("$", "")
         .replace("USD", "")
         .replace("EUR", "")
+        .replace("$", "")
         .replace("€", "")
         .strip()
     )
 
     try:
         return float(value)
-    except:
+    except Exception:
         return None
 
 
 @app.get("/")
 def root():
-    return {"message": "Invoice Extractor API is running"}
+    return {"status": "ok"}
 
 
 @app.post("/extract")
@@ -63,44 +62,41 @@ def extract(req: InvoiceRequest):
 
     # Invoice Number
     invoice_no = find([
-        r"Invoice\s*No\.?\s*[:\-]\s*(.+)",
-        r"Invoice\s*#\s*[:\-]\s*(.+)",
-        r"Invoice\s*Number\s*[:\-]\s*(.+)",
-        r"Inv\s*No\.?\s*[:\-]\s*(.+)"
+        r"Invoice\s*No\.?\s*[:#-]?\s*([A-Za-z0-9\-/]+)",
+        r"Invoice\s*#\s*[:#-]?\s*([A-Za-z0-9\-/]+)",
+        r"Invoice\s*Number\s*[:#-]?\s*([A-Za-z0-9\-/]+)",
+        r"Inv\s*No\.?\s*[:#-]?\s*([A-Za-z0-9\-/]+)",
+        r"Bill\s*No\.?\s*[:#-]?\s*([A-Za-z0-9\-/]+)",
+        r"Ref\s*[:#-]?\s*([A-Za-z0-9\-/]+)",
+        r"Reference\s*[:#-]?\s*([A-Za-z0-9\-/]+)"
     ], text)
-
-    if invoice_no:
-        invoice_no = invoice_no.split("\n")[0].strip()
 
     # Vendor
     vendor = find([
         r"Vendor\s*[:\-]\s*(.+)",
+        r"Seller\s*[:\-]\s*(.+)",
         r"Supplier\s*[:\-]\s*(.+)",
         r"Sold\s*By\s*[:\-]\s*(.+)",
-        r"Seller\s*[:\-]\s*(.+)",
         r"Company\s*[:\-]\s*(.+)",
         r"Business\s*Name\s*[:\-]\s*(.+)",
         r"Bill\s*From\s*[:\-]\s*(.+)",
         r"From\s*[:\-]\s*(.+)"
     ], text)
 
-    # Fallback: first meaningful line
     if vendor is None:
         lines = [line.strip() for line in text.splitlines() if line.strip()]
         for line in lines:
             if not re.search(
-                r"invoice|date|subtotal|total|gst|tax|amount|bill|receipt",
+                r"invoice|bill|date|issued|subtotal|total|tax|gst|vat|amount|currency|client|description",
                 line,
                 re.IGNORECASE,
             ):
                 vendor = line
                 break
 
-    if vendor:
-        vendor = vendor.split("\n")[0].strip()
-
     # Date
     date_text = find([
+        r"Issued\s*[:\-]\s*(.+)",
         r"Invoice\s*Date\s*[:\-]\s*(.+)",
         r"Date\s*[:\-]\s*(.+)"
     ], text)
@@ -114,31 +110,37 @@ def extract(req: InvoiceRequest):
 
     # Amount (Subtotal before tax)
     amount = parse_amount(find([
-        r"Subtotal\s*[:\-]\s*(Rs\.?\s*[\d,]+(?:\.\d+)?)",
-        r"Sub\s*Total\s*[:\-]\s*(Rs\.?\s*[\d,]+(?:\.\d+)?)",
-        r"Amount\s*Before\s*Tax\s*[:\-]\s*(Rs\.?\s*[\d,]+(?:\.\d+)?)"
+        r"Subtotal\s*[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"Sub\s*Total\s*[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"Amount\s*Before\s*Tax\s*[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"Taxable\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"Base\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"Net\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"Total\s*Before\s*Tax\s*[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)"
     ], text))
 
     # Tax
     tax = parse_amount(find([
-        r"GST.*?[:\-]\s*(Rs\.?\s*[\d,]+(?:\.\d+)?)",
-        r"Tax.*?[:\-]\s*(Rs\.?\s*[\d,]+(?:\.\d+)?)",
-        r"VAT.*?[:\-]\s*(Rs\.?\s*[\d,]+(?:\.\d+)?)"
+        r"IGST.*?[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"CGST.*?[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"SGST.*?[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"GST.*?[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"VAT.*?[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"Tax.*?[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)"
     ], text))
 
     # Currency
-    currency = None
+    currency = find([
+        r"Currency\s*[:\-]\s*(INR|USD|EUR)"
+    ], text)
 
-    if re.search(r"₹|Rs\.?|INR", text, re.IGNORECASE):
-        currency = "INR"
-    elif re.search(r"\$", text):
-        currency = "USD"
-    elif re.search(r"USD", text, re.IGNORECASE):
-        currency = "USD"
-    elif re.search(r"€", text):
-        currency = "EUR"
-    elif re.search(r"EUR", text, re.IGNORECASE):
-        currency = "EUR"
+    if currency is None:
+        if re.search(r"₹|Rs\.?|INR", text, re.IGNORECASE):
+            currency = "INR"
+        elif re.search(r"\$|USD", text, re.IGNORECASE):
+            currency = "USD"
+        elif re.search(r"€|EUR", text, re.IGNORECASE):
+            currency = "EUR"
 
     return {
         "invoice_no": invoice_no,
