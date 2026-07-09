@@ -1,91 +1,107 @@
-import os
-import json
 import re
+from datetime import datetime
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from dotenv import load_dotenv
-from openai import OpenAI
-
-load_dotenv()
+from dateutil import parser
 
 app = FastAPI()
 
-client = OpenAI(
-    api_key=os.getenv("AIPIPE_TOKEN"),
-    base_url="https://aipipe.org/openrouter/v1"
+# Enable CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
 class InvoiceRequest(BaseModel):
-    document_id: str
-    text: str
-    schema: dict
+    invoice_text: str
 
 
-@app.get("/")
-def home():
-    return {"status": "ok"}
+def find(patterns, text):
+    for p in patterns:
+        m = re.search(p, text, re.IGNORECASE | re.MULTILINE)
+        if m:
+            return m.group(1).strip()
+    return None
 
 
-@app.post("/")
-def extract_invoice(req: InvoiceRequest):
+def parse_amount(value):
+    if value is None:
+        return None
 
-    prompt = f"""
-Extract the invoice information from the document below.
-
-Rules:
-- Return ONLY valid JSON.
-- Follow the supplied JSON schema exactly.
-- Copy values exactly as they appear in the document.
-- Never invent or correct text.
-- Email addresses must be copied exactly from the document.
-
-Document:
-{req.text}
-"""
-
-    response = client.chat.completions.create(
-        model="openai/gpt-4.1-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You are an invoice extraction assistant. "
-                    "Return only valid JSON matching the provided schema. "
-                    "Copy values exactly as written. "
-                    "Do not guess or correct spelling."
-                ),
-            },
-            {
-                "role": "user",
-                "content": prompt,
-            },
-        ],
-        response_format={
-            "type": "json_schema",
-            "json_schema": {
-                "name": "invoice",
-                "schema": req.schema,
-            },
-        },
+    value = (
+        value.replace(",", "")
+        .replace("Rs.", "")
+        .replace("Rs", "")
+        .replace("INR", "")
+        .replace("₹", "")
+        .strip()
     )
 
-    result = json.loads(response.choices[0].message.content)
+    try:
+        return float(value)
+    except:
+        return None
 
-    # Extract email directly from original text
-    email_match = re.search(
-        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
-        req.text
-    )
 
-    if email_match:
-        result["contact_email"] = email_match.group(0).lower()
-    elif result.get("contact_email"):
-        result["contact_email"] = result["contact_email"].strip().lower()
+@app.post("/extract")
+def extract(req: InvoiceRequest):
+    text = req.invoice_text
 
-    # Ensure item_count is correct
-    if "line_items" in result:
-        result["item_count"] = len(result["line_items"])
+    invoice_no = find([
+        r"Invoice\s*No\.?\s*[:\-]\s*(.+)",
+        r"Invoice\s*#\s*[:\-]\s*(.+)",
+        r"Invoice\s*Number\s*[:\-]\s*(.+)"
+    ], text)
 
-    return result
+    vendor = find([
+        r"Vendor\s*[:\-]\s*(.+)",
+        r"Supplier\s*[:\-]\s*(.+)",
+        r"Sold\s*By\s*[:\-]\s*(.+)"
+    ], text)
+
+    date_text = find([
+        r"Date\s*[:\-]\s*(.+)",
+        r"Invoice\s*Date\s*[:\-]\s*(.+)"
+    ], text)
+
+    date = None
+    if date_text:
+        try:
+            date = parser.parse(date_text, dayfirst=True).date().isoformat()
+        except:
+            pass
+
+    amount = parse_amount(find([
+        r"Subtotal\s*[:\-]\s*(Rs\.?\s*[\d,]+\.\d+)",
+        r"Sub\s*Total\s*[:\-]\s*(Rs\.?\s*[\d,]+\.\d+)"
+    ], text))
+
+    tax = parse_amount(find([
+        r"GST.*?[:\-]\s*(Rs\.?\s*[\d,]+\.\d+)",
+        r"Tax.*?[:\-]\s*(Rs\.?\s*[\d,]+\.\d+)",
+        r"VAT.*?[:\-]\s*(Rs\.?\s*[\d,]+\.\d+)"
+    ], text))
+
+    currency = None
+
+    if re.search(r"\bINR\b|Rs\.?|₹", text, re.I):
+        currency = "INR"
+    elif re.search(r"\bUSD\b|\$", text):
+        currency = "USD"
+    elif re.search(r"\bEUR\b|€", text):
+        currency = "EUR"
+
+    return {
+        "invoice_no": invoice_no,
+        "date": date,
+        "vendor": vendor,
+        "amount": amount,
+        "tax": tax,
+        "currency": currency,
+    }
