@@ -22,9 +22,9 @@ class InvoiceRequest(BaseModel):
 
 def find(patterns, text):
     for pattern in patterns:
-        m = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
-        if m:
-            return m.group(1).strip()
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            return match.group(1).strip()
     return None
 
 
@@ -52,12 +52,13 @@ def parse_amount(value):
 
 
 @app.get("/")
-def root():
+def home():
     return {"status": "ok"}
 
 
 @app.post("/extract")
 def extract(req: InvoiceRequest):
+
     text = req.invoice_text
 
     # Invoice Number
@@ -73,14 +74,14 @@ def extract(req: InvoiceRequest):
 
     # Vendor
     vendor = find([
-        r"Vendor\s*[:\-]\s*(.+)",
-        r"Seller\s*[:\-]\s*(.+)",
-        r"Supplier\s*[:\-]\s*(.+)",
-        r"Sold\s*By\s*[:\-]\s*(.+)",
-        r"Company\s*[:\-]\s*(.+)",
-        r"Business\s*Name\s*[:\-]\s*(.+)",
-        r"Bill\s*From\s*[:\-]\s*(.+)",
-        r"From\s*[:\-]\s*(.+)"
+        r"Vendor\s*:\s*(.+)",
+        r"Seller\s*:\s*(.+)",
+        r"Supplier\s*:\s*(.+)",
+        r"Sold\s*By\s*:\s*(.+)",
+        r"Company\s*:\s*(.+)",
+        r"Business\s*Name\s*:\s*(.+)",
+        r"Bill\s*From\s*:\s*(.+)",
+        r"From\s*:\s*(.+)"
     ], text)
 
     if vendor is None:
@@ -96,9 +97,9 @@ def extract(req: InvoiceRequest):
 
     # Date
     date_text = find([
-        r"Issued\s*[:\-]\s*(.+)",
-        r"Invoice\s*Date\s*[:\-]\s*(.+)",
-        r"Date\s*[:\-]\s*(.+)"
+        r"Issued\s*:\s*(.+)",
+        r"Invoice\s*Date\s*:\s*(.+)",
+        r"Date\s*:\s*(.+)"
     ], text)
 
     date = None
@@ -108,30 +109,36 @@ def extract(req: InvoiceRequest):
         except Exception:
             date = None
 
-    # Amount (Subtotal before tax)
+    # Amount
     amount = parse_amount(find([
-        r"Subtotal\s*[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
-        r"Sub\s*Total\s*[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
-        r"Amount\s*Before\s*Tax\s*[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
-        r"Taxable\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
-        r"Base\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
-        r"Net\s*Amount\s*[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
-        r"Total\s*Before\s*Tax\s*[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)"
+        r"Subtotal\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"Sub\s*Total\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"Amount\s*Before\s*Tax\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"Taxable\s*Amount\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"Base\s*Amount\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"Net\s*Amount\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"Total\s*Before\s*Tax\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)"
     ], text))
 
     # Tax
     tax = parse_amount(find([
-        r"IGST.*?[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
-        r"CGST.*?[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
-        r"SGST.*?[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
-        r"GST.*?[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
-        r"VAT.*?[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
-        r"Tax.*?[:\-]?\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)"
+        r"IGST\s*\([^)]*\)\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"CGST\s*\([^)]*\)\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"SGST\s*\([^)]*\)\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"GST\s*\([^)]*\)\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"VAT\s*\([^)]*\)\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"Tax\s*\([^)]*\)\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"IGST\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"CGST\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"SGST\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"GST\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"VAT\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)",
+        r"Tax\s*:\s*(?:Rs\.?|₹|INR|USD|EUR)?\s*([\d,]+(?:\.\d+)?)"
     ], text))
 
     # Currency
     currency = find([
-        r"Currency\s*[:\-]\s*(INR|USD|EUR)"
+        r"Currency\s*:\s*(INR|USD|EUR)"
     ], text)
 
     if currency is None:
