@@ -1,5 +1,6 @@
 import os
 import json
+import re
 
 from fastapi import FastAPI
 from pydantic import BaseModel
@@ -33,7 +34,12 @@ def extract_invoice(req: InvoiceRequest):
     prompt = f"""
 Extract the invoice information from the document below.
 
-Return ONLY valid JSON that exactly matches the supplied JSON Schema.
+Rules:
+- Return ONLY valid JSON.
+- Follow the supplied JSON schema exactly.
+- Copy values exactly as they appear in the document.
+- Never invent or correct text.
+- Email addresses must be copied exactly from the document.
 
 Document:
 {req.text}
@@ -46,8 +52,9 @@ Document:
                 "role": "system",
                 "content": (
                     "You are an invoice extraction assistant. "
-                    "Return only valid JSON. "
-                    "Follow the provided schema exactly."
+                    "Return only valid JSON matching the provided schema. "
+                    "Copy values exactly as written. "
+                    "Do not guess or correct spelling."
                 ),
             },
             {
@@ -66,11 +73,18 @@ Document:
 
     result = json.loads(response.choices[0].message.content)
 
-    # Normalize email to lowercase as required
-    if result.get("contact_email"):
-        result["contact_email"] = result["contact_email"].lower()
+    # Extract email directly from original text
+    email_match = re.search(
+        r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+        req.text
+    )
 
-    # Ensure item_count matches the number of line items
+    if email_match:
+        result["contact_email"] = email_match.group(0).lower()
+    elif result.get("contact_email"):
+        result["contact_email"] = result["contact_email"].strip().lower()
+
+    # Ensure item_count is correct
     if "line_items" in result:
         result["item_count"] = len(result["line_items"])
 
